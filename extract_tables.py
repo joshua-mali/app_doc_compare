@@ -64,7 +64,7 @@ def summarize_policy_data(extracted_json, context_hint):
 
     Follow these rules precisely:
     1. Identify each distinct type of insurance coverage (e.g., "Life Insurance", "TPD", "Income Protection").
-    2. For each coverage, find its `Sum Insured` and `Yearly Premium`. If a premium is monthly, multiply it by 12.
+    2. For each coverage, find its `Sum Insured` and `Yearly Premium`. **IMPORTANT**: Only multiply by 12 if the premium is explicitly labeled as monthly (e.g., "per month", "monthly", "/month"). If it's already yearly or if there's no clear indication, use the value as-is. Be very careful not to double-convert premiums that are already annual.
     3. **Determine the `Payment Source` using this strict rule: If the source text contains "Super" or "Superannuation", you MUST output "Superannuation". For ALL other cases (including "Personal", "Ordinary", "Cash Flow", or if it is not mentioned), you MUST output "Cash Flow". These are the only two valid options.**
     4. If any information is not found, use an empty string "" or null.
     5. Your output MUST be a JSON object containing a list called "coverages".
@@ -168,21 +168,26 @@ def create_pdf_report(comparison_data, filename="Insurance_Comparison_Report.pdf
     story = []
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name='TitleStyle', fontName='Helvetica-Bold', fontSize=16, alignment=TA_RIGHT))
-    styles.add(ParagraphStyle(name='DateStyle', fontName='Helvetica', fontSize=9, alignment=TA_RIGHT, leading=12))
+    styles.add(ParagraphStyle(name='DateStyle', fontName='Helvetica-Bold', fontSize=16, alignment=TA_RIGHT, leading=18))
     styles.add(ParagraphStyle(name='HeaderStyle', fontName='Helvetica-Bold', fontSize=14, spaceBefore=12, spaceAfter=6))
     styles.add(ParagraphStyle(name='TableHeaderStyle', fontName='Helvetica-Bold', fontSize=9, alignment=TA_CENTER, textColor=colors.whitesmoke))
     styles.add(ParagraphStyle(name='TableCellStyle', fontName='Helvetica', fontSize=9, alignment=TA_CENTER))
 
     def get_ordinal_day(d):
-        return str(d) + ("th" if 11 <= d <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(d % 10, "th"))
+        if 10 <= d % 100 <= 20:
+            suffix = "th"
+        else:
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(d % 10, "th")
+        return f"{d}{suffix}"
 
     try: logo = Image('PC logo.png', width=1.5*inch, height=0.75*inch)
     except Exception: logo = Spacer(0, 0)
     now = datetime.now()
     formatted_date_str = f"{get_ordinal_day(now.day)} {now.strftime('%B %Y')}"
+    print(f"DEBUG: Current date formatted as: {formatted_date_str}")
     title = Paragraph("Discussion Paper For Client as at", styles['TitleStyle'])
     current_date = Paragraph(formatted_date_str, styles['DateStyle'])
-    header_table = Table([[logo, [title, current_date]]], colWidths=[1.7*inch, 5.8*inch])
+    header_table = Table([[logo, [title, Spacer(1, 0.1*inch), current_date]]], colWidths=[1.7*inch, 5.8*inch])
     header_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP')]))
     story.append(header_table)
     story.append(Spacer(1, 0.2*inch))
@@ -196,7 +201,10 @@ def create_pdf_report(comparison_data, filename="Insurance_Comparison_Report.pdf
     original_table_data = [TABLE_HEADERS]
     for item in comparison_data.get("comparison_summary", []):
         details = item.get("original_details", {})
-        row = [Paragraph(item.get("coverage_type", ""), styles['TableCellStyle']), Paragraph(details.get("sum_insured", ""), styles['TableCellStyle']), Paragraph(f'${details.get("yearly_premium", "0.00")}', styles['TableCellStyle']), Paragraph(details.get("payment_source", ""), styles['TableCellStyle'])]
+        yearly_premium = details.get("yearly_premium", "0.00")
+        # Remove existing dollar signs to avoid double dollar signs
+        yearly_premium = str(yearly_premium).replace("$", "")
+        row = [Paragraph(item.get("coverage_type", ""), styles['TableCellStyle']), Paragraph(details.get("sum_insured", ""), styles['TableCellStyle']), Paragraph(f'${yearly_premium}', styles['TableCellStyle']), Paragraph(details.get("payment_source", ""), styles['TableCellStyle'])]
         original_table_data.append(row)
     original_table = Table(original_table_data, colWidths=TABLE_COL_WIDTHS, repeatRows=1)
     original_table.setStyle(table_style)
@@ -208,7 +216,10 @@ def create_pdf_report(comparison_data, filename="Insurance_Comparison_Report.pdf
         for quote in item.get("quotes", []):
             insurer = quote.get("insurer", "Unknown")
             if insurer not in scenarios: scenarios[insurer] = []
-            scenarios[insurer].append([Paragraph(item.get("coverage_type", ""), styles['TableCellStyle']), Paragraph(quote.get("sum_insured", ""), styles['TableCellStyle']), Paragraph(f'${quote.get("yearly_premium", "0.00")}', styles['TableCellStyle']), Paragraph(quote.get("payment_source", ""), styles['TableCellStyle'])])
+            yearly_premium = quote.get("yearly_premium", "0.00")
+            # Remove existing dollar signs to avoid double dollar signs
+            yearly_premium = str(yearly_premium).replace("$", "")
+            scenarios[insurer].append([Paragraph(item.get("coverage_type", ""), styles['TableCellStyle']), Paragraph(quote.get("sum_insured", ""), styles['TableCellStyle']), Paragraph(f'${yearly_premium}', styles['TableCellStyle']), Paragraph(quote.get("payment_source", ""), styles['TableCellStyle'])])
     
     for insurer, table_rows in scenarios.items():
         story.append(Paragraph(f"{insurer}", styles['HeaderStyle']))
